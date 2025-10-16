@@ -1,0 +1,15 @@
+# Orchestrator Agent Requirements
+
+# Google ADK for agent framework
+google-adk==1.9.0
+a2a-sdk==0.2.16
+
+# Web server
+starlette==0.47.2
+uvicorn[standard]==0.35.0
+
+# Data validation
+pydantic>=2.0.0
+
+# Utilities
+python-dotenv

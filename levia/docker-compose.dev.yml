@@ -1,0 +1,150 @@
+version: '3.8'
+
+# Levia Multi-Agent System - Development Environment
+# True Direct A2A Communication (no message broker)
+
+services:
+  # Orchestrator Agent - Central coordinator
+  orchestrator:
+    build:
+      context: .
+      dockerfile: agents/orchestrator/Dockerfile
+    container_name: levia-orchestrator
+    ports:
+      - "8001:8000"  # External:Internal
+    volumes:
+      # Mount code for live reload (no rebuild needed!)
+      - ./shared:/app/shared
+      - ./agents/orchestrator:/app/agents/orchestrator
+    # Load environment variables from .env file
+    env_file:
+      - .env
+    environment:
+      # Agent discovery URLs (Direct A2A!)
+      - SEARCH_AGENT_URL=http://search:8000
+      # Uncomment when agents are ready:
+      # - VISION_AGENT_URL=http://vision:8000
+      # - KNOWLEDGE_AGENT_URL=http://knowledge:8000
+      # - SYNTHESIS_AGENT_URL=http://synthesis:8000
+
+      # Service configuration
+      - PORT=8000
+      # Use Docker network name for inter-agent communication
+      - PUBLIC_URL=http://orchestrator:8000
+      - LOG_LEVEL=INFO
+
+      # Note: GEMINI_API_KEY is loaded from .env file
+
+      # Google Cloud (if needed)
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-}
+    networks:
+      - levia-network
+    depends_on:
+      - search
+    restart: unless-stopped
+
+  # Search Agent - Dummy mode (no Elasticsearch needed for testing)
+  search:
+    build:
+      context: .
+      dockerfile: agents/search/Dockerfile
+    container_name: levia-search
+    ports:
+      - "8002:8000"
+    volumes:
+      # Mount code for live reload (no rebuild needed!)
+      - ./shared:/app/shared
+      - ./agents/search:/app/agents/search
+    # Load environment variables from .env file
+    env_file:
+      - .env
+    environment:
+      # No Elasticsearch needed in dummy mode!
+      # - ELASTICSEARCH_URL=http://host.docker.internal:9200
+
+      # Service configuration
+      - PORT=8000
+      # Use Docker network name for inter-agent communication
+      - PUBLIC_URL=http://search:8000
+      - LOG_LEVEL=INFO
+
+      # Note: GEMINI_API_KEY is loaded from .env file
+    networks:
+      - levia-network
+    restart: unless-stopped
+
+  # # Vision Agent - Image analysis (placeholder)
+  # vision:
+  #   build:
+  #     context: .
+  #     dockerfile: agents/vision/Dockerfile
+  #   container_name: levia-vision
+  #   ports:
+  #     - "8003:8000"
+  #   environment:
+  #     # Gemini API
+  #     - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+
+  #     # Service configuration
+  #     - PORT=8000
+  #     - PUBLIC_URL=http://localhost:8003
+  #     - LOG_LEVEL=INFO
+
+  #     # Google Cloud
+  #     - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-}
+  #   networks:
+  #     - levia-network
+  #   restart: unless-stopped
+
+  # # Knowledge Agent - RadGraph analysis (placeholder)
+  # knowledge:
+  #   build:
+  #     context: .
+  #     dockerfile: agents/knowledge/Dockerfile
+  #   container_name: levia-knowledge
+  #   ports:
+  #     - "8004:8000"
+  #   environment:
+  #     # Can call Search agent directly! (True peer-to-peer A2A)
+  #     - SEARCH_AGENT_URL=http://search:8000
+
+  #     # Service configuration
+  #     - PORT=8000
+  #     - PUBLIC_URL=http://localhost:8004
+  #     - LOG_LEVEL=INFO
+  #   networks:
+  #     - levia-network
+  #   depends_on:
+  #     - search
+  #   restart: unless-stopped
+
+  # # Synthesis Agent - Final answer generation (placeholder)
+  # synthesis:
+  #   build:
+  #     context: .
+  #     dockerfile: agents/synthesis/Dockerfile
+  #   container_name: levia-synthesis
+  #   ports:
+  #     - "8005:8000"
+  #   environment:
+  #     # Gemini API
+  #     - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+
+  #     # Service configuration
+  #     - PORT=8000
+  #     - PUBLIC_URL=http://localhost:8005
+  #     - LOG_LEVEL=INFO
+
+  #     # Google Cloud
+  #     - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-}
+  #   networks:
+  #     - levia-network
+  #   restart: unless-stopped
+
+networks:
+  levia-network:
+    driver: bridge
+
+# Note: Elasticsearch should be started separately via the root docker-compose.yml
+# Run this with: docker-compose -f levia/docker-compose.dev.yml up --build
