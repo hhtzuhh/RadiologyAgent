@@ -1,0 +1,6 @@
+elasticsearch>=8.19.1
+pandas
+google-cloud-aiplatform
+kaggle
+tqdm
+google-adk

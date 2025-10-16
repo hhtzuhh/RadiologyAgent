@@ -1,0 +1,37 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "properties": {
+      "report_text": {
+        "type": "text"
+      },
+      "chexbert_labels": {
+        "type": "object",
+        "enabled": true
+      },
+      "radgraph_findings_entities": {
+        "type": "keyword"
+      },
+      "radgraph_impression_entities": {
+        "type": "keyword"
+      },
+      "image_vector": {
+        "type": "dense_vector",
+        "dims": 1408
+      },
+      "text_vector": {
+        "type": "dense_vector",
+        "dims": 768
+      },
+      "deid_patient_id": {
+        "type": "keyword"
+      },
+      "report_date": {
+        "type": "date"
+      }
+    }
+  }
+}
