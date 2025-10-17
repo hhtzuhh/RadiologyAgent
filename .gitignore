@@ -5,6 +5,8 @@ __pycache__
 paper
 docs
 levia/.env
+levia/*-sa-key.json
+*.json.key
 agentverse-architect
 a2a-samples
 .DS_Store
