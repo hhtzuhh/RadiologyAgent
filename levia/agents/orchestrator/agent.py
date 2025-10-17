@@ -1,490 +1,288 @@
-"""Orchestrator Agent - Query analysis and multi-agent coordination using Google ADK.
+"""Orchestrator Agent - Multi-Agent Radiology Intelligence System.
 
-This agent uses RemoteA2aAgent to communicate directly with other agents
-following the True Direct A2A architecture (no message broker).
+This orchestrator coordinates specialized agents to investigate complex clinical questions
+through autonomous collaboration, using Google A2A (Agent-to-Agent) communication style.
+
+Agent Architecture:
+- Orchestrator: Query understanding, task decomposition, coordination
+- Search Agent: Information retrieval with adaptive search strategies
+- Vision Agent: Medical image analysis and feature extraction
+- Knowledge Agent: Medical knowledge reasoning and validation
+- Synthesis Agent: Final answer generation with citations
 """
 import os
 import logging
-from typing import Dict, Any, List
-from enum import Enum
 
-from google.adk.agents.base_agent import BaseAgent
-from google.adk.agents.remote_a2a_agent import RemoteA2aAgent
-from google.adk.agents.context import GenerateContext
-from google.adk.artifacts.artifact import Artifact
-from pydantic import BaseModel, Field
+from google.adk.agents.llm_agent import LlmAgent
+from google.adk.agents.remote_a2a_agent import RemoteA2aAgent, AGENT_CARD_WELL_KNOWN_PATH
 
 
 logger = logging.getLogger(__name__)
 
 
-class QueryType(str, Enum):
-    """Types of radiology queries."""
-    SIMPLE_SEARCH = "simple_search"          # "Find pneumothorax cases"
-    CORRELATION = "correlation"              # "Why do X and Y occur together?"
-    EXPLANATION = "explanation"              # "What causes X?"
-    DIFFERENTIAL = "differential"            # "What could cause these findings?"
-    IMAGE_SEARCH = "image_search"            # Search by image similarity
-
-
-class AgentTask(BaseModel):
-    """Task to be executed by an agent."""
-    agent: str
-    action: str
-    params: Dict[str, Any] = Field(default_factory=dict)
-    depends_on: List[str] = Field(default_factory=list)
-
-
-class OrchestratorAgent(BaseAgent):
+def create_orchestrator_agent():
     """
-    Orchestrator Agent - Central coordinator for radiology investigations.
+    Create an LLM-driven orchestrator agent for multi-agent radiology intelligence.
 
-    Responsibilities:
-    1. Analyze user query and classify query type
-    2. Decompose complex queries into agent tasks
-    3. Coordinate task execution (sequential or parallel)
-    4. Aggregate results from multiple agents
-    5. Generate final response
+    The orchestrator autonomously:
+    - Validates and refines user queries
+    - Decomposes complex clinical questions into subtasks
+    - Coordinates specialized agents in optimal execution order
+    - Evaluates intermediate results and triggers self-correction
+    - Maintains conversation state for follow-up questions
 
-    Uses Google ADK RemoteA2aAgent for direct HTTP communication
-    with other agents (no message broker).
+    Returns:
+        LlmAgent: Configured orchestrator with all sub-agent connections
     """
-
-    def __init__(self):
-        super().__init__(
-            name="orchestrator",
-            description="Orchestrator agent that analyzes queries and coordinates "
-                       "multiple specialized agents (search, vision, knowledge, synthesis) "
-                       "for comprehensive radiology investigations.",
-        )
-
-        # Initialize remote agent connections (Direct A2A!)
-        self.search_url = os.getenv("SEARCH_AGENT_URL")
-        self.vision_url = os.getenv("VISION_AGENT_URL")
-        self.knowledge_url = os.getenv("KNOWLEDGE_AGENT_URL")
-        self.synthesis_url = os.getenv("SYNTHESIS_AGENT_URL")
-
-        logger.info(f"Orchestrator initialized with agent URLs:")
-        logger.info(f"  Search: {self.search_url}")
-        logger.info(f"  Vision: {self.vision_url}")
-        logger.info(f"  Knowledge: {self.knowledge_url}")
-        logger.info(f"  Synthesis: {self.synthesis_url}")
-
-        # Initialize remote agents for direct A2A communication
-        self.agents: Dict[str, RemoteA2aAgent] = {}
-        self._init_remote_agents()
-
-    def _init_remote_agents(self):
-        """Initialize RemoteA2aAgent connections to other agents."""
-        agent_urls = {
-            "search": self.search_url,
-            "vision": self.vision_url,
-            "knowledge": self.knowledge_url,
-            "synthesis": self.synthesis_url,
-        }
-
-        for agent_name, url in agent_urls.items():
-            if url:
-                try:
-                    self.agents[agent_name] = RemoteA2aAgent(
-                        agent_card_url=f"{url}/.well-known/agent-card"
-                    )
-                    logger.info(f"Connected to {agent_name} agent at {url}")
-                except Exception as e:
-                    logger.error(f"Failed to connect to {agent_name} agent: {e}")
-            else:
-                logger.warning(f"No URL configured for {agent_name} agent")
-
-    async def generate(self, context: GenerateContext) -> Artifact:
-        """
-        Main entry point for orchestration.
-
-        Flow:
-        1. Analyze query → determine query type
-        2. Plan tasks → create task graph
-        3. Execute tasks → coordinate agents
-        4. Aggregate results → compile evidence
-        5. Generate response → synthesize answer
-
-        Args:
-            context: ADK GenerateContext containing user query
-
-        Returns:
-            Artifact containing final response with citations
-        """
-        user_query = context.user_content.text
-        logger.info(f"Orchestrator received query: {user_query[:100]}")
-
-        try:
-            # Step 1: Analyze query
-            analysis = await self._analyze_query(user_query, context)
-            logger.info(f"Query type: {analysis['query_type']}")
-
-            # Step 2: Plan tasks
-            tasks = self._plan_tasks(analysis)
-            logger.info(f"Planned {len(tasks)} tasks")
-
-            # Step 3: Execute tasks
-            results = await self._execute_tasks(tasks, context)
-            logger.info(f"Executed {len(results)} tasks")
-
-            # Step 4: Aggregate results
-            aggregated = self._aggregate_results(results)
-
-            # Step 5: Generate final response (via Synthesis agent)
-            final_response = await self._generate_response(
-                query=user_query,
-                analysis=analysis,
-                results=aggregated,
-                context=context
-            )
-
-            return Artifact(content=final_response)
-
-        except Exception as e:
-            logger.error(f"Orchestration failed: {e}")
-            return Artifact(content=f"Error: {str(e)}")
-
-    async def _analyze_query(self, query: str, context: GenerateContext) -> Dict[str, Any]:
-        """
-        Analyze query to determine type and extract key information.
-
-        Uses simple keyword matching. In production, use LLM for classification.
-        """
-        query_lower = query.lower()
-
-        # Determine query type
-        if any(word in query_lower for word in ["why", "correlation", "relationship", "together"]):
-            query_type = QueryType.CORRELATION
-        elif any(word in query_lower for word in ["what causes", "explain", "mechanism"]):
-            query_type = QueryType.EXPLANATION
-        elif any(word in query_lower for word in ["differential", "could be", "possibilities"]):
-            query_type = QueryType.DIFFERENTIAL
-        elif context.session_metadata.get("image_provided"):
-            query_type = QueryType.IMAGE_SEARCH
-        else:
-            query_type = QueryType.SIMPLE_SEARCH
-
-        # Extract entities (conditions, anatomies, etc.)
-        # In production, use NER or LLM extraction
-        entities = self._extract_entities(query)
-
-        return {
-            "query_type": query_type,
-            "query": query,
-            "entities": entities,
-            "requires_knowledge_graph": query_type in [QueryType.CORRELATION, QueryType.EXPLANATION],
-            "requires_vision": context.session_metadata.get("image_provided", False),
-        }
-
-    def _extract_entities(self, query: str) -> Dict[str, List[str]]:
-        """
-        Extract medical entities from query.
-
-        In production, use medical NER model.
-        """
-        # Simple keyword extraction for demo
-        conditions = []
-        anatomies = []
-
-        query_lower = query.lower()
-
-        # Common radiology findings
-        finding_keywords = [
-            "pneumothorax", "pleural effusion", "cardiomegaly", "pneumonia",
-            "atelectasis", "consolidation", "edema", "mass", "nodule"
-        ]
-
-        anatomy_keywords = [
-            "lung", "heart", "pleura", "chest", "thorax", "cardiac", "pulmonary"
-        ]
-
-        for keyword in finding_keywords:
-            if keyword in query_lower:
-                conditions.append(keyword.replace(" ", "_").title())
-
-        for keyword in anatomy_keywords:
-            if keyword in query_lower:
-                anatomies.append(keyword.title())
-
-        return {
-            "conditions": conditions,
-            "anatomies": anatomies,
-        }
-
-    def _plan_tasks(self, analysis: Dict[str, Any]) -> List[AgentTask]:
-        """
-        Create task execution plan based on query analysis.
-
-        Returns list of tasks with dependencies for proper sequencing.
-        """
-        query_type = analysis["query_type"]
-        tasks = []
-
-        if query_type == QueryType.SIMPLE_SEARCH:
-            # Simple: just search
-            tasks.append(AgentTask(
-                agent="search",
-                action="hybrid_search",
-                params={"text_query": analysis["query"]}
-            ))
-
-        elif query_type == QueryType.CORRELATION:
-            # Complex: search → knowledge → search (for details) → synthesis
-            tasks.extend([
-                AgentTask(
-                    agent="search",
-                    action="filter_co_occurrence",
-                    params={"analysis": analysis},
-                    depends_on=[]
-                ),
-                AgentTask(
-                    agent="knowledge",
-                    action="analyze_correlation",
-                    params={"analysis": analysis},
-                    depends_on=["search"]
-                ),
-                AgentTask(
-                    agent="synthesis",
-                    action="generate_explanation",
-                    params={"analysis": analysis},
-                    depends_on=["knowledge"]
-                )
-            ])
-
-        elif query_type == QueryType.EXPLANATION:
-            # Search → Knowledge (extract causal relationships) → Synthesis
-            tasks.extend([
-                AgentTask(
-                    agent="search",
-                    action="hybrid_search",
-                    params={"text_query": analysis["query"]},
-                    depends_on=[]
-                ),
-                AgentTask(
-                    agent="knowledge",
-                    action="extract_mechanisms",
-                    params={"analysis": analysis},
-                    depends_on=["search"]
-                ),
-                AgentTask(
-                    agent="synthesis",
-                    action="generate_explanation",
-                    params={"analysis": analysis},
-                    depends_on=["knowledge"]
-                )
-            ])
-
-        elif query_type == QueryType.IMAGE_SEARCH:
-            # Vision → Search (using embeddings) → Synthesis
-            tasks.extend([
-                AgentTask(
-                    agent="vision",
-                    action="analyze_image",
-                    params={"image_data": analysis.get("image_data")},
-                    depends_on=[]
-                ),
-                AgentTask(
-                    agent="search",
-                    action="hybrid_search",
-                    params={"use_vision_results": True},
-                    depends_on=["vision"]
-                ),
-                AgentTask(
-                    agent="synthesis",
-                    action="generate_summary",
-                    params={"analysis": analysis},
-                    depends_on=["search"]
-                )
-            ])
-
-        else:
-            # Default: just search
-            tasks.append(AgentTask(
-                agent="search",
-                action="hybrid_search",
-                params={"text_query": analysis["query"]}
-            ))
-
-        return tasks
-
-    async def _execute_tasks(
-        self,
-        tasks: List[AgentTask],
-        context: GenerateContext
-    ) -> Dict[str, Any]:
-        """
-        Execute tasks in proper order based on dependencies.
-
-        Uses RemoteA2aAgent for direct HTTP communication.
-        """
-        results = {}
-        executed = set()
-
-        # Simple dependency resolution (topological sort would be better)
-        max_iterations = len(tasks) + 1
-        iteration = 0
-
-        while len(executed) < len(tasks) and iteration < max_iterations:
-            iteration += 1
-
-            for task in tasks:
-                # Skip if already executed
-                if task.agent in executed:
-                    continue
-
-                # Check if dependencies are satisfied
-                deps_satisfied = all(dep in executed for dep in task.depends_on)
-
-                if deps_satisfied:
-                    logger.info(f"Executing task: {task.agent}.{task.action}")
-
-                    # DIRECT A2A COMMUNICATION HERE!
-                    result = await self._call_agent(
-                        agent_name=task.agent,
-                        action=task.action,
-                        params=task.params,
-                        previous_results=results,
-                        context=context
-                    )
-
-                    results[task.agent] = result
-                    executed.add(task.agent)
-
-        return results
-
-    async def _call_agent(
-        self,
-        agent_name: str,
-        action: str,
-        params: Dict,
-        previous_results: Dict,
-        context: GenerateContext
-    ) -> Dict[str, Any]:
-        """
-        Call another agent directly via A2A protocol.
-
-        This is TRUE Direct A2A - HTTP call to agent's endpoint!
-        """
-        if agent_name not in self.agents:
-            logger.error(f"Agent {agent_name} not available")
-            return {"error": f"Agent {agent_name} not configured"}
-
-        try:
-            # Direct A2A call via RemoteA2aAgent
-            remote_agent = self.agents[agent_name]
-
-            logger.info(f"[Orchestrator] Calling {agent_name} agent directly...")
-            logger.info(f"  Action: {action}, Params: {params}")
-
-            # Execute remote agent task
-            # Note: In ADK, the context is passed directly to the agent
-            # The agent will parse the context to extract action/params
-            response = await remote_agent.generate(context)
-
-            logger.info(f"[Orchestrator] Received response from {agent_name}")
-
-            # Parse response
-            return self._parse_agent_response(response)
-
-        except Exception as e:
-            logger.error(f"Failed to call {agent_name} agent: {e}")
-            return {"error": str(e)}
-
-    def _parse_agent_response(self, response: Artifact) -> Dict[str, Any]:
-        """Parse agent response artifact into dict."""
-        try:
-            # In production, use structured response format
-            import json
-            return json.loads(response.content) if isinstance(response.content, str) else {"data": response.content}
-        except Exception:
-            return {"data": str(response.content)}
-
-    def _aggregate_results(self, results: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Aggregate results from multiple agents.
-
-        Combines evidence, extracts key findings, calculates confidence.
-        """
-        aggregated = {
-            "evidence": [],
-            "num_cases": 0,
-            "confidence": 0.0,
-            "agents_involved": list(results.keys()),
-        }
-
-        # Extract search results
-        if "search" in results:
-            search_data = results["search"].get("results", [])
-            aggregated["evidence"].extend(search_data)
-            aggregated["num_cases"] = len(search_data)
-
-        # Extract knowledge insights
-        if "knowledge" in results:
-            aggregated["knowledge_insights"] = results["knowledge"]
-
-        # Extract vision analysis
-        if "vision" in results:
-            aggregated["vision_analysis"] = results["vision"]
-
-        # Calculate overall confidence
-        confidences = []
-        for agent_result in results.values():
-            if "confidence" in agent_result:
-                confidences.append(agent_result["confidence"])
-
-        if confidences:
-            aggregated["confidence"] = sum(confidences) / len(confidences)
-
-        return aggregated
-
-    async def _generate_response(
-        self,
-        query: str,
-        analysis: Dict,
-        results: Dict,
-        context: GenerateContext
-    ) -> str:
-        """
-        Generate final response using Synthesis agent.
-
-        If Synthesis agent not available, generate simple response.
-        """
-        if "synthesis" in self.agents:
-            try:
-                # Call Synthesis agent for final answer
-                response = await self._call_agent(
-                    agent_name="synthesis",
-                    action="generate_final_answer",
-                    params={
-                        "query": query,
-                        "analysis": analysis,
-                        "results": results
-                    },
-                    previous_results={},
-                    context=context
-                )
-
-                return response.get("answer", "No response generated")
-
-            except Exception as e:
-                logger.error(f"Synthesis failed: {e}")
-                return self._generate_fallback_response(query, results)
-        else:
-            return self._generate_fallback_response(query, results)
-
-    def _generate_fallback_response(self, query: str, results: Dict) -> str:
-        """Generate simple response when Synthesis agent unavailable."""
-        num_cases = results.get("num_cases", 0)
-        confidence = results.get("confidence", 0.0)
-
-        response = f"Query: {query}\n\n"
-        response += f"Found {num_cases} relevant cases.\n"
-        response += f"Confidence: {confidence:.2f}\n\n"
-
-        if results.get("evidence"):
-            response += "Top findings:\n"
-            for i, evidence in enumerate(results["evidence"][:3], 1):
-                response += f"{i}. Patient {evidence.get('patient_id', 'N/A')}\n"
-
-        return response
+    # Get agent URLs from environment
+    search_url = os.getenv("SEARCH_AGENT_URL")
+    vision_url = os.getenv("VISION_AGENT_URL")
+    knowledge_url = os.getenv("KNOWLEDGE_AGENT_URL")
+    synthesis_url = os.getenv("SYNTHESIS_AGENT_URL")
+
+    logger.info("=" * 80)
+    logger.info("Initializing Multi-Agent Radiology Intelligence Orchestrator")
+    logger.info("=" * 80)
+    logger.info(f"  [Search]     {search_url or 'Not configured'}")
+    logger.info(f"  [Vision]     {vision_url or 'Not configured'}")
+    logger.info(f"  [Knowledge]  {knowledge_url or 'Not configured'}")
+    logger.info(f"  [Synthesis]  {synthesis_url or 'Not configured'}")
+    logger.info("=" * 80)
+
+    # Create remote agent connections using A2A protocol
+    sub_agents = []
+
+    if search_url:
+        sub_agents.append(RemoteA2aAgent(
+            name="search_agent",
+            description=(
+                "Elasticsearch search agent with adaptive strategy selection. "
+                "Capabilities: "
+                "- BM25 keyword search for precise medical terms "
+                "- kNN semantic search for conceptual queries "
+                "- Hybrid search combining both strategies "
+                "- Multimodal search using image embeddings "
+                "- Label filtering (CheXbert 14 disease labels) "
+                "- Patient ID and temporal filtering "
+                "- Result quality evaluation and strategy adaptation "
+                "Use for: finding relevant radiology cases, co-occurrence analysis, "
+                "comparative searches, similar case retrieval."
+            ),
+            agent_card=f"{search_url}/{AGENT_CARD_WELL_KNOWN_PATH}"
+        ))
+        logger.info("  + Search Agent registered")
+
+    if vision_url:
+        sub_agents.append(RemoteA2aAgent(
+            name="vision_agent",
+            description=(
+                "Vision analysis agent using Gemini Vision API. "
+                "Capabilities: "
+                "- Anatomical structure identification "
+                "- Abnormality detection and description "
+                "- Visual feature extraction for search queries "
+                "- Image embedding generation for similarity search "
+                "- Medical image interpretation and annotation "
+                "Use for: analyzing uploaded X-rays, extracting visual features "
+                "for search filters, generating image embeddings, visual question answering."
+            ),
+            agent_card=f"{vision_url}/{AGENT_CARD_WELL_KNOWN_PATH}"
+        ))
+        logger.info("  + Vision Agent registered")
+
+    if knowledge_url:
+        sub_agents.append(RemoteA2aAgent(
+            name="knowledge_agent",
+            description=(
+                "Knowledge graph and RadGraph analysis agent. "
+                "Capabilities: "
+                "- RadGraph entity extraction (anatomical, observation, disease) "
+                "- Relationship triplet parsing (entity -> relation -> entity) "
+                "- Medical term validation and ontology mapping "
+                "- Pattern detection across multiple cases "
+                "- Correlation and causation analysis "
+                "- CheXbert label verification "
+                "Use for: validating search results, extracting relationships, "
+                "identifying causal mechanisms, cross-agent validation."
+            ),
+            agent_card=f"{knowledge_url}/{AGENT_CARD_WELL_KNOWN_PATH}"
+        ))
+        logger.info("  + Knowledge Agent registered")
+
+    if synthesis_url:
+        sub_agents.append(RemoteA2aAgent(
+            name="synthesis_agent",
+            description=(
+                "Synthesis agent for generating comprehensive, citation-backed answers. "
+                "Capabilities: "
+                "- Evidence aggregation from multiple agents "
+                "- Medical report synthesis with clinical language "
+                "- Citation generation (patient IDs, report references) "
+                "- Explanation generation with reasoning traces "
+                "- Draft report section generation (Findings, Impression) "
+                "- Multi-source corroboration and summarization "
+                "Use for: generating final answers, creating comprehensive responses, "
+                "synthesizing evidence, producing explainable outputs."
+            ),
+            agent_card=f"{synthesis_url}/{AGENT_CARD_WELL_KNOWN_PATH}"
+        ))
+        logger.info("  + Synthesis Agent registered")
+
+    # Create the LLM-driven orchestrator with comprehensive instructions
+    orchestrator = LlmAgent(
+        name="orchestrator",
+        model="gemini-2.0-flash",
+        instruction="""You are the Orchestrator Agent for a Multi-Agent Radiology Intelligence System.
+
+Your role is to coordinate specialized agents to investigate complex clinical questions through
+autonomous collaboration. You must maintain clear intelligence domain boundaries and enable
+each agent to work within its expertise.
+
+===============================================================================
+INTELLIGENCE DOMAIN BOUNDARIES (CRITICAL)
+===============================================================================
+
+You (Orchestrator):
++ Query validation and refinement
++ Task decomposition into subtasks
++ Agent coordination and sequencing
++ Quality evaluation of intermediate results
++ Conversation state management
+- DO NOT choose search strategies (search_agent's job)
+- DO NOT interpret medical findings (synthesis_agent's job)
+
+search_agent:
++ Search strategy selection (BM25, kNN, hybrid, multimodal)
++ Result quality evaluation and adaptation
++ Filter application (labels, patient IDs, dates)
+- DO NOT reject vague queries (orchestrator's job)
+- DO NOT interpret medical meaning (synthesis_agent's job)
+
+vision_agent:
++ Image analysis and feature extraction
++ Anatomical structure identification
++ Visual abnormality detection
+- DO NOT validate against RadGraph (knowledge_agent's job)
+
+knowledge_agent:
++ RadGraph traversal and entity extraction
++ Medical term validation
++ Relationship pattern detection
+- DO NOT generate final explanations (synthesis_agent's job)
+
+synthesis_agent:
++ Medical reasoning and interpretation
++ Evidence aggregation and explanation
++ Citation-backed answer generation
+- DO NOT perform searches (search_agent's job)
+
+===============================================================================
+STANDARD INVESTIGATION WORKFLOW
+===============================================================================
+
+1. QUERY ANALYSIS & VALIDATION
+   - Classify query type: factual retrieval, correlation, causation, similarity, VQA
+   - Check if query is specific enough (if not, ask clarifying questions)
+   - Determine required agents based on query type
+
+2. TASK DECOMPOSITION
+   Examples:
+   - "Why do patients with X often have Y?" ->
+     Task 1: Find co-occurrence frequency (search_agent)
+     Task 2: Extract relationships (knowledge_agent)
+     Task 3: Find explanatory text (search_agent with refined query)
+     Task 4: Synthesize causal explanation (synthesis_agent)
+
+   - "What is in this X-ray?" ->
+     Task 1: Analyze image (vision_agent)
+     Task 2: Find similar cases (search_agent with image embedding)
+     Task 3: Synthesize findings (synthesis_agent)
+
+   - "Find cases with condition X" ->
+     Task 1: Search with appropriate strategy (search_agent)
+     Task 2: Generate summary (synthesis_agent)
+
+3. PARALLEL EXECUTION (when applicable)
+   - vision_agent and initial search_agent queries can run concurrently
+   - Knowledge validation can happen in parallel with result aggregation
+
+4. QUALITY EVALUATION & SELF-CORRECTION
+   After each subtask, evaluate:
+   - Are results sufficient? (check result count, relevance scores)
+   - If search_agent returns weak results: it should retry with different strategy
+   - If knowledge_agent finds inconsistencies: refine search parameters
+   - Maximum 2-3 retry attempts per subtask
+
+5. SYNTHESIS & RESPONSE
+   - Aggregate all agent outputs
+   - Call synthesis_agent to generate final answer
+   - Include reasoning traces showing each agent's contribution
+   - Provide citations (patient IDs, report references)
+
+===============================================================================
+QUERY TYPE HANDLING
+===============================================================================
+
+A. Evidence Retrieval & Corroboration (Text Input)
+   Examples:
+   - "What is the latest report for patient TCGA-123 regarding cardiac issues?"
+   - "Find reports with Pleural Effusion that mention size"
+   -> Use search_agent with appropriate filters
+
+B. Visual Correlation & Similarity (Image Input)
+   Examples:
+   - [Image] "Find similar cases with confirmed Lung Lesion"
+   - [Image] "What is the positional reasoning for the Support Device?"
+   -> Use vision_agent first, then search_agent with image embedding
+
+C. Correlation & Causation Questions
+   Examples:
+   - "Why do patients with X often have Y?"
+   - "What is the relationship between X and Y?"
+   -> Multi-step: search_agent -> knowledge_agent -> refined search -> synthesis_agent
+
+D. Workflow & Reporting Assistance
+   Examples:
+   - "Generate a draft impression for these findings"
+   - "Is it standard to classify X as Y?"
+   -> Use search_agent for precedent cases, synthesis_agent for generation
+
+===============================================================================
+IMPORTANT RULES
+===============================================================================
+
+1. Always start with search_agent for evidence gathering (unless image analysis is needed first)
+2. Each agent logs its decisions - maintain audit trail
+3. Agent outputs include metadata (scores, strategies used, result counts)
+4. If any agent fails or returns insufficient results, evaluate and adapt
+5. For follow-up questions, reference previous agent outputs (conversation memory)
+6. Provide explainable reasoning by showing each agent's contribution
+7. All final answers must be grounded in the CheXpert dataset with citations
+
+===============================================================================
+EXAMPLE REASONING TRACE FORMAT
+===============================================================================
+
+Final Response should include:
+- **Query Analysis:** [Your classification and plan]
+- **Agent Coordination:**
+  - [Agent Name]: [What it did and why]
+  - [Result summary with metadata]
+- **Findings:** [Aggregated evidence]
+- **Answer:** [Comprehensive response with citations]
+
+Begin investigating!""",
+        sub_agents=sub_agents,
+    )
+
+    agent_count = len(sub_agents)
+    logger.info("=" * 80)
+    logger.info(f"Orchestrator initialized with {agent_count} sub-agent(s)")
+    logger.info("  Ready for multi-agent collaboration")
+    logger.info("=" * 80)
+
+    return orchestrator
+
+
+# ADK web looks for this specific variable name
+root_agent = create_orchestrator_agent()

@@ -7,3 +7,5 @@ docs
 levia/.env
 agentverse-architect
 a2a-samples
+.DS_Store
+clean

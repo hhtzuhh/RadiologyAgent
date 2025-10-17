@@ -3,4 +3,6 @@ pandas
 google-cloud-aiplatform
 kaggle
 tqdm
-google-adk
+a2a-sdk>=0.3.0
+google-genai>=1.9.0
+google-adk>=1.7.0

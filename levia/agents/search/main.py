@@ -9,12 +9,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../.."))
 from shared.agent_to_a2a import to_a2a
 from shared.config import get_public_url, get_port
 
-# Choose agent implementation:
-# Option 1: Dummy agent (no Elasticsearch needed) - for testing A2A
-# from agent_dummy import DummySearchAgent as SearchAgent
-
-# Option 2: Real agent with RRF + query refinement (requires Elasticsearch)
-from agent_with_refinement import SearchAgent
+from .agent import SearchAgent
 
 # Configure logging
 logging.basicConfig(
@@ -24,28 +19,46 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# Get configuration
-PORT = get_port()
-PUBLIC_URL = get_public_url(default_port=PORT)
 
-# Create the agent
-logger.info("Creating Search Agent...")
-search_agent = SearchAgent()
+def create_app():
+    """Create the Search A2A application."""
+    # Create the agent
+    logger.info("Creating Search Agent...")
+    search_agent = SearchAgent()
 
-app = to_a2a(search_agent, port=PORT, public_url=PUBLIC_URL)
+    # Get configuration
+    port = get_port()
+    public_url = get_public_url(default_port=port)
+
+    logger.info(f"Creating Search A2A app on port {port}")
+    logger.info(f"Public URL: {public_url}")
+
+    # Convert to A2A Starlette app
+    app = to_a2a(
+        agent=search_agent,
+        port=port,
+        public_url=public_url
+    )
+    return app
+
+
+# Create app instance for uvicorn
+app = create_app()
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    logger.info("=" * 60)
-    logger.info("Starting Search Agent (RRF Hybrid Search + Query Refinement)")
-    logger.info("=" * 60)
-    logger.info(f"Port: {PORT}")
-    logger.info(f"Public URL: {PUBLIC_URL}")
-    logger.info("")
-    logger.info("Endpoints:")
-    logger.info(f"  Agent card: http://0.0.0.0:{PORT}/.well-known/agent.json")
-    logger.info("=" * 60)
+    port = get_port()
 
-    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
+    logger.info("=" * 60)
+    logger.info("Starting Search Agent")
+    logger.info("=" * 60)
+    logger.info(f"Port: {port}")
+    logger.info(f"Public URL: {get_public_url(default_port=port)}")
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=port, 
+        log_level="info"
+    )

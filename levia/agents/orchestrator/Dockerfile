@@ -20,4 +20,4 @@ ENV PORT=8000
 EXPOSE 8000
 
 # Run the orchestrator
-CMD ["python", "agents/orchestrator/main.py"]
+CMD ["python", "-m", "agents.orchestrator.main"]

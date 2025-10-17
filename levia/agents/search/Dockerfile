@@ -19,4 +19,4 @@ ENV PORT=8000
 EXPOSE 8000
 
 # Run the search agent
-CMD ["python", "agents/search/main.py"]
+CMD ["python", "-m", "agents.search.main"]

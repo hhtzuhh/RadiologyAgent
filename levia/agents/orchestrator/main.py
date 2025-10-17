@@ -14,11 +14,8 @@ from shared.agent_to_a2a import to_a2a
 from shared.config import get_public_url, get_port
 
 # Choose orchestration approach:
-# Option 1: Simple LLM-driven (like Summoner) - flexible, 130 lines
-from agent_simple import create_orchestrator_agent
+from .agent import create_orchestrator_agent
 
-# Option 2: Programmatic (full control) - predictable, 419 lines
-# from agent import OrchestratorAgent as create_orchestrator_agent
 
 
 # Configure logging
@@ -62,7 +59,7 @@ if __name__ == "__main__":
     port = get_port()
 
     logger.info("=" * 60)
-    logger.info("Starting Orchestrator Agent (LLM-Driven)")
+    logger.info("Starting Orchestrator Agent")
     logger.info("=" * 60)
     logger.info(f"Orchestrator running on port: {port}")
     logger.info(f"Orchestrator public URL: {get_public_url(default_port=port)}")
