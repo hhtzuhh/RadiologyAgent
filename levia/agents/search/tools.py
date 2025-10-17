@@ -3,6 +3,7 @@
 This module provides the search functionality used by the search agent.
 """
 import logging
+import os
 from typing import Optional
 from elasticsearch import Elasticsearch
 import vertexai
@@ -11,10 +12,10 @@ from vertexai.language_models import TextEmbeddingModel
 logger = logging.getLogger(__name__)
 
 # Configuration
-ES_HOST = "http://127.0.0.1:9200"
+ES_HOST = os.getenv("ELASTICSEARCH_URL", "http://127.0.0.1:9200")
 ES_INDEX = "radiology_reports"
-GCP_PROJECT_ID = "radiology-agent"
-GCP_LOCATION = "us-central1"
+GCP_PROJECT_ID = os.getenv("GOOGLE_CLOUD_PROJECT", "radiology-agent")
+GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
 
 # Initialize clients (lazy loading)
 _es_client = None
@@ -26,14 +27,31 @@ def get_es_client() -> Elasticsearch:
     global _es_client
     if _es_client is None:
         try:
-            # Use compatibility mode for ES client 9.x with ES server 8.x
-            _es_client = Elasticsearch(
-                [ES_HOST],
-                headers={"accept": "application/json", "content-type": "application/json"}
-            )
+            # Get API key for Elasticsearch Serverless
+            ES_API_KEY = os.getenv("ELASTICSEARCH_API_KEY")
+
+            if ES_API_KEY:
+                # Use API key authentication (for Elasticsearch Serverless)
+                _es_client = Elasticsearch(
+                    ES_HOST,
+                    api_key=ES_API_KEY,
+                    request_timeout=30
+                )
+                logger.info(f"Connecting to Elasticsearch Serverless at {ES_HOST}")
+            else:
+                # Fallback to no auth (for local ES)
+                _es_client = Elasticsearch(
+                    [ES_HOST],
+                    headers={"accept": "application/json", "content-type": "application/json"}
+                )
+                logger.info(f"Connecting to local Elasticsearch at {ES_HOST}")
+
             # Test connection
-            info = _es_client.info()
-            logger.info(f"Connected to Elasticsearch cluster: {info.get('cluster_name', 'unknown')}")
+            if _es_client.ping():
+                logger.info(f"Successfully connected to Elasticsearch")
+            else:
+                raise ConnectionError("Elasticsearch ping failed")
+
         except Exception as e:
             logger.error(f"Failed to connect to Elasticsearch: {e}")
             raise ConnectionError(f"Could not connect to Elasticsearch: {e}")
@@ -41,12 +59,26 @@ def get_es_client() -> Elasticsearch:
 
 
 def get_text_embedding_model() -> TextEmbeddingModel:
-    """Get or create Vertex AI text embedding model."""
+    """Get or create Vertex AI text embedding model.
+
+    Uses Application Default Credentials (ADC):
+    - In local dev: Reads GOOGLE_APPLICATION_CREDENTIALS env var
+    - In GCP (Cloud Run, GKE): Uses workload identity automatically
+    """
     global _text_embedding_model
     if _text_embedding_model is None:
-        vertexai.init(project=GCP_PROJECT_ID, location=GCP_LOCATION)
-        _text_embedding_model = TextEmbeddingModel.from_pretrained("text-embedding-004")
-        logger.info("Connected to Vertex AI text embedding model")
+        try:
+            # ADC will automatically find credentials:
+            # 1. GOOGLE_APPLICATION_CREDENTIALS env var (local dev)
+            # 2. Workload identity (Cloud Run, GKE)
+            # 3. gcloud auth (if mounted)
+            vertexai.init(project=GCP_PROJECT_ID, location=GCP_LOCATION)
+            _text_embedding_model = TextEmbeddingModel.from_pretrained("text-embedding-004")
+            logger.info(f"Connected to Vertex AI text embedding model (project: {GCP_PROJECT_ID})")
+        except Exception as e:
+            logger.error(f"Failed to initialize Vertex AI: {e}")
+            logger.error("Make sure GOOGLE_APPLICATION_CREDENTIALS is set or running on GCP with proper IAM roles")
+            raise
     return _text_embedding_model
 
 
@@ -87,7 +119,7 @@ def search_bm25_only(
         - total_count: Number of results
         - search_method: "bm25"
 
-    Example:
+    Usage:
         >>> results = search_bm25_only(
         ...     query="pneumothorax",
         ...     filters={"Pneumothorax": 1.0}
@@ -184,7 +216,7 @@ def search_knn_semantic(
         - total_count: Number of results
         - search_method: "knn_semantic"
 
-    Example:
+    Usage:
         >>> results = search_knn_semantic(
         ...     query="fluid accumulation in lungs",
         ...     top_n=10
@@ -287,7 +319,7 @@ def search_radiology_reports_rrf(
         - stage1_count: Number of candidates from stage 1
         - final_count: Number of final results
 
-    Example:
+    Usage:
         >>> results = search_radiology_reports_rrf(
         ...     query="large pneumothorax",
         ...     filters={"Pneumothorax": 1.0}
@@ -424,7 +456,7 @@ def search_radiology_reports_hybrid(
         - stage1_count: Number of candidates from stage 1
         - final_count: Number of final results
 
-    Example:
+    Usage:
         >>> results = search_radiology_reports_hybrid(
         ...     query="large pneumothorax",
         ...     filters={"Pneumothorax": 1.0}

@@ -6,3 +6,4 @@ tqdm
 a2a-sdk>=0.3.0
 google-genai>=1.9.0
 google-adk>=1.7.0
+python-dotenv

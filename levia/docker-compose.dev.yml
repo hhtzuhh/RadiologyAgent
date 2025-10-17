@@ -1,8 +1,4 @@
 version: '3.8'
-
-# Levia Multi-Agent System - Development Environment
-# True Direct A2A Communication (no message broker)
-
 services:
   # Orchestrator Agent - Central coordinator
   orchestrator:
@@ -13,7 +9,6 @@ services:
     ports:
       - "8001:8000"  # External:Internal
     volumes:
-      # Mount code for live reload (no rebuild needed!)
       - ./shared:/app/shared
       - ./agents/orchestrator:/app/agents/orchestrator
     # Load environment variables from .env file
@@ -32,19 +27,13 @@ services:
       # Use Docker network name for inter-agent communication
       - PUBLIC_URL=http://orchestrator:8000
       - LOG_LEVEL=INFO
-
-      # Note: GEMINI_API_KEY is loaded from .env file
-
-      # Google Cloud (if needed)
-      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-}
-      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-}
     networks:
       - levia-network
     depends_on:
       - search
     restart: unless-stopped
 
-  # Search Agent - Dummy mode (no Elasticsearch needed for testing)
+  # Search Agent
   search:
     build:
       context: .
@@ -53,23 +42,19 @@ services:
     ports:
       - "8002:8000"
     volumes:
-      # Mount code for live reload (no rebuild needed!)
       - ./shared:/app/shared
       - ./agents/search:/app/agents/search
+      # Mount service account key for Vertex AI (local dev only)
+      - ./levia-sa-key.json:/app/sa-key.json:ro
     # Load environment variables from .env file
     env_file:
       - .env
     environment:
-      # No Elasticsearch needed in dummy mode!
-      # - ELASTICSEARCH_URL=http://host.docker.internal:9200
-
       # Service configuration
       - PORT=8000
       # Use Docker network name for inter-agent communication
       - PUBLIC_URL=http://search:8000
       - LOG_LEVEL=INFO
-
-      # Note: GEMINI_API_KEY is loaded from .env file
     networks:
       - levia-network
     restart: unless-stopped
