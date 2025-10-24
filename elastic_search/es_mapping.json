@@ -1,8 +1,4 @@
 {
-  "settings": {
-    "number_of_shards": 1,
-    "number_of_replicas": 0
-  },
   "mappings": {
     "properties": {
       "report_text": {
@@ -20,11 +16,18 @@
       },
       "image_vector": {
         "type": "dense_vector",
-        "dims": 1408
+        "dims": 1408,
+        "index": true,
+        "similarity": "cosine"
       },
       "text_vector": {
         "type": "dense_vector",
-        "dims": 768
+        "dims": 768,
+        "index": true,
+        "similarity": "cosine"
+      },
+      "image_url": {
+        "type": "keyword"
       },
       "deid_patient_id": {
         "type": "keyword"
