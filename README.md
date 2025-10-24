@@ -4,8 +4,8 @@
 
 Levia is a hierarchical multi-agent AI system that combines **Google Cloud Vertex AI Agent Engines** with **Elastic Search's hybrid search capabilities** to deliver intelligent, conversational radiology report analysis and case retrieval. This project demonstrates the powerful synergy between Google Cloud's generative AI tools and Elasticsearch's advanced search infrastructure.
 
-## Video Link:
-
+## Video Demo:
+[![Watch the video](https://img.youtube.com/vi/ZOrl6fkvzdA/maxresdefault.jpg)](https://www.youtube.com/watch?v=ZOrl6fkvzdA)
 ## Image Gallery:
 ![levia](assets/levia.png)
 
